@@ -1,0 +1,170 @@
+Cecilia Saixue Watt (ciw2104)
+Network Security Spring 2015
+
+=====================================
+to compile
+=====================================
+javac EncryptedHost.java
+javac Server.java
+javac Client.java
+
+=====================================
+to run the program
+=====================================
+ARGUMENTS:
+java Server [port]
+java Client [name] [port]
+
+EXAMPLE:
+java Server 6066
+java Client localhost 6066
+
+=====================================
+Files (9)
+=====================================
+ - EncryptedHost.java
+ - Client.java
+ - Server.java
+
+ - client_keystore.jks
+ - client_truststore.ts
+ - client.cer
+ - server_keystore.jks
+ - server_truststore.ts
+ - server.cer
+These should be in the same folder as executables.
+
+Here is how they were generated. For simplicity, the password for all keys and keystores is 123456
+
+# generate server_keystore.jks
+keytool -genkey -alias key1 -keyalg RSA -sigalg SHA256withRSA -keystore server_keystore.jks -storepass 123456
+
+# generate client.cer
+keytool -export -alias key1 -sigalg SHA256withRSA -file client.cer -keystore server_keystore.jks
+
+# populate client's truststore with client.cer
+keytool -import -v -trustcacerts -alias key1 -file client.cer -keystore client_truststore.ts 
+
+# generate client_keystore.jks
+keytool -genkey -alias key2 -keyalg RSA -sigalg SHA256withRSA -keystore client_keystore.jks -storepass 123456
+
+# generate server.cer
+keytool -export -alias key2 -sigalg SHA256withRSA -file server.cer -keystore client_keystore.jks
+
+# populate server's truststore with server.cer
+keytool -import -v -trustcacerts -alias key2 -file server.cer -keystore server_truststore.ts 
+
+=====================================
+high-level overview
+=====================================
+Client and Server both extend the abstract class, EncryptedHost. EncryptedHost just provides a number of helpful general methods, such as AES encryption/decryption, hash verification, etc. More detailed information below.
+
+1. start server.
+2. start client, client will display a little prompt for the user like this: ">"
+3. now the user can enter any valid command, like the following described for GET/PUT/STOP
+4. server saves files in a folder called "server," client saves files in a folder called "retrieved_from_server"
+
+=====================================
+sample run
+=====================================
+$ java Server 6066
+
+$ java Client localhost 6066
+> put testfile.txt N
+Transfer succeeded.
+> get testfile.txt N
+File verified against hash. Trying to save...
+Transfer of testfile.txt complete.
+> get fakefile.txt N
+File retrieval failed.
+> put secretfile.txt E pAssword
+Transfer succeeded.
+> get secretfile.txt N
+File does not match hash. Was this file encrypted?
+> get secretfile.txt E paSsword
+Decryption error. Is your password correct?
+> get secretfile.txt E pAssword
+File verified against hash. Trying to save...
+Transfer of secretfile.txt complete.
+
+=====================================
+GET
+=====================================
+1. User can enter "get <filename> N" or "get <filename> E <password>"
+2. client will check for this type of format according to the following errors:
+ - no filename provided
+ - neither E or N selected
+ - E selected, but no password provided
+ - password is not 8 characters
+If any of these errors exist, display a message to the user. 
+3. Otherwise, send just the message "GET" to the server. This acts as a flag so the server knows it should now process a GET request.
+4. The client sends the requested filename, e.g. "samplefile.txt" to the server, which will interpret this as the name of the file it should now try to retrieve.
+5. The server tries to load the file with that name, and its corresponding hash. 
+6. If errors occur (i.e. it cannot find the file) it will send a failure message, "NOK" to the client. The client displays an error message to the user.
+7. If no errors occur in finding the files, the server will send a success message, "OK" to the client. The server will then send the file requested, and the hash.
+8. If encryption was specified in the command, the client will try to decrypt the file using the provided password.
+9. The client will check the received file against the hash. If validation fails, an error message will be shown to the user. If validation succeeds, the user will be told of the success and that the client will now try to save the file.
+10. The client saves the file in a folder called retrieved_from_server. If this directory does not exist, it will be created in the working directory. If saving fails for some reason, a message will be displayed to the user. 
+
+=====================================
+PUT
+=====================================
+1. User can enter "put <filename> N" or "put <filename> E <password>"
+2. client will check for this type of format according to the following errors:
+ - no filename provided
+ - neither E or N selected
+ - E selected, but no password provided
+ - password is not 8 characters
+If any of these errors exist, display a message to the user. 
+3. Otherwise, the clients sends the message "PUT" to the server. This acts as a flag so the server knows it should now process a PUT request.
+4. If the user specified encryption, the file will be encrypted with the provided password, and the IV will be prepended to the encrypted data.
+5. The client sends three things to the server: the name of the file it is about to transmit, the file itself, and its computed hash.
+6. The server attempts to save the file and the hash. If any errors occur, it sends a "NOK" message to the client, which will then display an error message to the user. If the file and hash are saved successfully, the server sends an "OK" message to the client, which will tell the user that the transfer has succeeded.
+
+=====================================
+STOP
+=====================================
+If the user enters "stop," the client will exit. The server will continue to listen for incoming connections from other clients.
+
+=====================================
+Server.java
+=====================================
+A multithreaded server implementation that could handle multiple clients. All files are saved in /server
+
+Methods:
+run - actually running each thread
+save - save a file and its corresponding hash to /server
+process_request - when a "GET" is sent from the client, see if the requested files can be retrieved. send if possible
+checkArgs - checks that supplied arguments are valid, namely that port number is supplied and it is an integer
+
+=====================================
+Client.java
+=====================================
+Continuously interprets user input until "stop." Saves all files in /retrieved_from_server
+
+parse - looks at a get/put command, verifies that it has all necessary parts (e.g. a password if encryption was specified) and calls get()/put() methods with appropriate parameters
+get - requests a file from the server, and listens for a response. receives the data sent by the server, decrypts/validates accordingly, calls save() if appropriate
+save - attempts to save a file that has been validated. 
+put - sends a file and its hash to the server
+checkArgs - checks that supplied arguments are valid, namely that server's name and port number are specified, and the port number is an integer.
+
+=====================================
+EncryptedHost.java
+=====================================
+An abstract class with methods I thought would be convenient for networked hosts (whether client or server) wishing to use encryption. Basically these are methods that either Client or Server could use, that are not specific to whether the object calling the method is acting as a Client or Server.
+
+loadFile - given a filename/path, locate the file and read it into a byte array
+saveFile - given a file, its filename, and the directory it should be saved in, write the file
+send - given an OutputStream and data (bytearray or string) write an integer length of the data to the stream. then write the data to the stream, and flush.
+read - given an InputStream, first read an integer from the stream which represents the length of the data to be read. Then, read the data and return as a bytearray.
+AES_encrypt - given data and an 8-character password, generate a key (see stringToKey, below) from the password and encrypt the data using AES in CBC mode and prepend the IV to the encrypted data. 
+AES_decrypt - given data and an 8-character password, generate a key (see stringToKey, below) from the password. use the first 16 bytes of the data as the IV and decrypt.
+stringToKey - given an 8-character password, use hashcode as seed to rng. use first 16 bytes as key
+RSA_encrypt* - given byte array and public key, encrypt using RSA
+RSA_decrypt* - given byte array and private key, decrypt using RSA
+verify - given two byte arrays, one is unhashed data and the other is hashed, hash the unhashed data and compare the results
+SHA_256 - compute hash using SHA-256
+loadPrivate* - load private key from file
+loadPUblic* - load public key from file
+
+*these methods weren't used in this project but were useful for the previous project and might still be useful in the future, so I've kept them in.
